@@ -18,11 +18,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/googleapis/generator/internal/container"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/googleapis/generator/internal/container"
 )
 
 type Command struct {
@@ -74,6 +75,13 @@ var CmdGenerate = &Command{
 	Name:  "generate",
 	Short: "Generate a new client library",
 	Run: func(ctx context.Context) error {
+		// tmpRoot is a newly-created working directory under /tmp
+		// We do any cloning or copying under there.
+		tmpRoot, err := createTmpWorkingRoot(time.Now())
+		if err != nil {
+			return err
+		}
+
 		if flagAPIPath == "" {
 			return fmt.Errorf("-api-path is not provided")
 		}
@@ -81,22 +89,28 @@ var CmdGenerate = &Command{
 			return fmt.Errorf("invalid -language flag specified: %q", flagLanguage)
 		}
 
+		var apiRoot string
 		if flagAPIRoot == "" {
-			repo, err := cloneGoogleapis(ctx)
+			repo, err := cloneGoogleapis(ctx, tmpRoot)
 			if err != nil {
 				return err
 			}
-			flagAPIRoot = repo.Dir
+			apiRoot = repo.Dir
+		} else {
+			apiRoot = flagAPIRoot
 		}
+
+		var outputDir string
 		if flagOutput == "" {
-			defaultOutput, err := defaultOutput(time.Now())
-			if err != nil {
+			outputDir = filepath.Join(tmpRoot, "output")
+			if err := os.Mkdir(outputDir, 0755); err != nil {
 				return err
 			}
-			flagOutput = defaultOutput
-			slog.Info(fmt.Sprintf("No output directory specified. Defaulting to %s", defaultOutput))
+			slog.Info(fmt.Sprintf("No output directory specified. Defaulting to %s", outputDir))
+		} else {
+			outputDir = flagOutput
 		}
-		return container.Generate(ctx, flagLanguage, flagAPIRoot, flagAPIPath, flagOutput, flagGeneratorInput)
+		return container.Generate(ctx, flagLanguage, apiRoot, flagAPIPath, outputDir, flagGeneratorInput)
 	},
 }
 
@@ -104,37 +118,64 @@ var CmdUpdateRepo = &Command{
 	Name:  "update-repo",
 	Short: "Configure a new API in a given language",
 	Run: func(ctx context.Context) error {
+
 		if !supportedLanguages[flagLanguage] {
 			return fmt.Errorf("invalid -language flag specified: %q", flagLanguage)
 		}
-		if flagAPIRoot == "" {
-			repo, err := cloneGoogleapis(ctx)
-			if err != nil {
-				return err
-			}
-			flagAPIRoot = repo.Dir
-		}
-		if flagOutput == "" {
-			defaultOutput, err := defaultOutput(time.Now())
-			if err != nil {
-				return err
-			}
-			flagOutput = defaultOutput
-			slog.Info(fmt.Sprintf("No output directory specified. Defaulting to %s", defaultOutput))
-		}
-		languageRepo, err := cloneLanguageRepo(ctx, flagLanguage)
+
+		// tmpRoot is a newly-created working directory under /tmp
+		// We do any cloning or copying under there.
+		tmpRoot, err := createTmpWorkingRoot(time.Now())
 		if err != nil {
 			return err
 		}
+
+		var apiRoot string
+		if flagAPIRoot == "" {
+			repo, err := cloneGoogleapis(ctx, tmpRoot)
+			if err != nil {
+				return err
+			}
+			apiRoot = repo.Dir
+		} else {
+			// Take a defensive copy of googleapis; ideally we'd omit
+			// the .git directory here, but this is at least simple.
+			apiRoot = filepath.Join(tmpRoot, "googleapis")
+			slog.Info(fmt.Sprintf("Copying %s to %s", flagAPIRoot, apiRoot))
+			os.CopyFS(apiRoot, os.DirFS(flagAPIRoot))
+		}
+
+		var outputDir string
+		if flagOutput == "" {
+			outputDir = filepath.Join(tmpRoot, "output")
+			if err := os.Mkdir(outputDir, 0755); err != nil {
+				return err
+			}
+			slog.Info(fmt.Sprintf("No output directory specified. Defaulting to %s", outputDir))
+		} else {
+			outputDir = flagOutput
+		}
+
+		languageRepo, err := cloneLanguageRepo(ctx, flagLanguage, tmpRoot)
+		if err != nil {
+			return err
+		}
+
 		image := fmt.Sprintf("google-cloud-%s-generator", flagLanguage)
-		generatorInput := filepath.Join(languageRepo.Dir, "generator-input")
-		if err := container.Generate(ctx, image, flagAPIRoot, flagOutput, generatorInput, flagAPIPath); err != nil {
+
+		// Take a defensive copy of the generator input directory from the language repo.
+		generatorInput := filepath.Join(tmpRoot, "generator-input")
+		if err := os.CopyFS(generatorInput, os.DirFS(filepath.Join(languageRepo.Dir, "generator-input"))); err != nil {
+			return err
+		}
+
+		if err := container.Generate(ctx, image, apiRoot, outputDir, generatorInput, flagAPIPath); err != nil {
 			return err
 		}
 		if err := container.Clean(ctx, image, languageRepo.Dir, flagAPIPath); err != nil {
 			return err
 		}
-		if err := os.CopyFS(languageRepo.Dir, os.DirFS(flagOutput)); err != nil {
+		if err := os.CopyFS(languageRepo.Dir, os.DirFS(outputDir)); err != nil {
 			return err
 		}
 		if err := container.Build(ctx, image, languageRepo.Dir, flagAPIPath); err != nil {
@@ -147,8 +188,8 @@ var CmdUpdateRepo = &Command{
 	},
 }
 
-func defaultOutput(t time.Time) (string, error) {
-	const yyyyMMddHHmmss = "20060102150405" // Expected format by time library
+func createTmpWorkingRoot(t time.Time) (string, error) {
+	const yyyyMMddHHmmss = "20060102T150405" // Expected format by time library
 
 	path := filepath.Join(os.TempDir(), fmt.Sprintf("generator-%s", t.Format(yyyyMMddHHmmss)))
 
@@ -156,14 +197,15 @@ func defaultOutput(t time.Time) (string, error) {
 	switch {
 	case os.IsNotExist(err):
 		if err := os.Mkdir(path, 0755); err != nil {
-			return "", fmt.Errorf("unable to create default output path '%s': %w", path, err)
+			return "", fmt.Errorf("unable to create temporary working directory '%s': %w", path, err)
 		}
 	case err == nil:
-		return "", fmt.Errorf("default output path already exists: %s", path)
+		return "", fmt.Errorf("temporary working directory already exists: %s", path)
 	default:
 		return "", fmt.Errorf("unable to check directory '%s': %w", path, err)
 	}
 
+	slog.Info(fmt.Sprintf("Temporary working directory: %s", path))
 	return path, nil
 }
 

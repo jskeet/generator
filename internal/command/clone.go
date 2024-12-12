@@ -17,7 +17,6 @@ package command
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/googleapis/generator/internal/gitrepo"
@@ -25,13 +24,13 @@ import (
 
 const googleapisURL = "https://github.com/googleapis/googleapis"
 
-func cloneGoogleapis(ctx context.Context) (*gitrepo.Repo, error) {
-	repoPath := filepath.Join(os.TempDir(), "/generator-googleapis")
+func cloneGoogleapis(ctx context.Context, tmpRoot string) (*gitrepo.Repo, error) {
+	repoPath := filepath.Join(tmpRoot, "googleapis")
 	return gitrepo.CloneOrOpen(ctx, repoPath, googleapisURL)
 }
 
-func cloneLanguageRepo(ctx context.Context, language string) (*gitrepo.Repo, error) {
+func cloneLanguageRepo(ctx context.Context, language, tmpRoot string) (*gitrepo.Repo, error) {
 	languageRepoURL := fmt.Sprintf("https://github.com/googleapis/google-cloud-%s", language)
-	repoPath := filepath.Join(os.TempDir(), fmt.Sprintf("/generator-google-cloud-%s", language))
+	repoPath := filepath.Join(tmpRoot, fmt.Sprintf("google-cloud-%s", language))
 	return gitrepo.CloneOrOpen(ctx, repoPath, languageRepoURL)
 }
