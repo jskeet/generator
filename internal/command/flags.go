@@ -26,6 +26,7 @@ var (
 	flagGitHubToken string
 	flagLanguage    string
 	flagOutput      string
+	flagRepoRoot    string
 	flagPush        bool
 	flagBuild       bool
 )
@@ -48,6 +49,10 @@ func addFlagBranch(fs *flag.FlagSet) {
 
 func addFlagLanguage(fs *flag.FlagSet) {
 	fs.StringVar(&flagLanguage, "language", "", "(Required) language to generate code for")
+}
+
+func addFlagRepoRoot(fs *flag.FlagSet) {
+	fs.StringVar(&flagRepoRoot, "repo-root", "", "Repository root. When this is not specified, the language repo will be cloned.")
 }
 
 var supportedLanguages = map[string]bool{

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/googleapis/generator/internal/container"
+	"github.com/googleapis/generator/internal/gitrepo"
 )
 
 type Command struct {
@@ -55,9 +56,6 @@ var CmdConfigure = &Command{
 	Name:  "configure",
 	Short: "Configure a new API in a given language",
 	Run: func(ctx context.Context) error {
-		if flagAPIRoot == "" {
-			return fmt.Errorf("-api-root is not provided")
-		}
 		if flagAPIPath == "" {
 			return fmt.Errorf("-api-path is not provided")
 		}
@@ -66,13 +64,6 @@ var CmdConfigure = &Command{
 		}
 		if flagPush && flagGitHubToken == "" {
 			return fmt.Errorf("-github-token must be provided if -push is set to true")
-		}
-
-		// We assume it's okay not to take a defensive copy of apiRoot in the configure command,
-		// as "vanilla" generation shouldn't need to edit any protos. (That's just an escape hatch.)
-		apiRoot, err := filepath.Abs(flagAPIRoot)
-		if err != nil {
-			return err
 		}
 
 		// tmpRoot is a newly-created working directory under /tmp
@@ -86,9 +77,38 @@ var CmdConfigure = &Command{
 		}
 
 		image := deriveImage()
-		languageRepo, err := cloneLanguageRepo(ctx, flagLanguage, tmpRoot)
-		if err != nil {
-			return err
+
+		var apiRoot string
+		if flagAPIRoot == "" {
+			repo, err := cloneGoogleapis(ctx, tmpRoot)
+			if err != nil {
+				return err
+			}
+			apiRoot = repo.Dir
+		} else {
+			// We assume it's okay not to take a defensive copy of apiRoot in the configure command,
+			// as "vanilla" configuration/generation shouldn't need to edit any protos. (That's just an escape hatch.)
+			apiRoot, err = filepath.Abs(flagAPIRoot)
+			if err != nil {
+				return err
+			}
+		}
+
+		var languageRepo *gitrepo.Repo
+		if flagRepoRoot == "" {
+			languageRepo, err = cloneLanguageRepo(ctx, flagLanguage, tmpRoot)
+			if err != nil {
+				return err
+			}
+		} else {
+			repoRoot, err := filepath.Abs(flagRepoRoot)
+			if err != nil {
+				return err
+			}
+			languageRepo, err = gitrepo.Open(ctx, repoRoot)
+			if err != nil {
+				return err
+			}
 		}
 
 		generatorInput := filepath.Join(languageRepo.Dir, "generator-input")
@@ -320,6 +340,7 @@ func init() {
 		addFlagLanguage,
 		addFlagPush,
 		addFlagGitHubToken,
+		addFlagRepoRoot,
 	} {
 		fn(fs)
 	}
