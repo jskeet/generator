@@ -27,6 +27,7 @@ var (
 	flagLanguage       string
 	flagOutput         string
 	flagPush           bool
+	flagBuild          bool
 )
 
 func addFlagAPIRoot(fs *flag.FlagSet) {
@@ -72,4 +73,8 @@ func addFlagGitHubToken(fs *flag.FlagSet) {
 
 func addFlagGeneratorInput(fs *flag.FlagSet) {
 	fs.StringVar(&flagGeneratorInput, "generator-input", "", "generator-input within the clone we've just created")
+}
+
+func addFlagBuild(fs *flag.FlagSet) {
+	fs.BoolVar(&flagBuild, "build", false, "whether to build the generated code")
 }

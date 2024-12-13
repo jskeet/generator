@@ -31,8 +31,8 @@ func Clean(ctx context.Context, image, repoRoot, apiPath string) error {
 	return runClean(image, repoRoot, apiPath)
 }
 
-func Build(ctx context.Context, image, repoRoot, apiPath string) error {
-	return runBuild(image, repoRoot, apiPath)
+func Build(ctx context.Context, image, rootOptionName, root, apiPath string) error {
+	return runBuild(image, rootOptionName, root, apiPath)
 }
 
 func Configure(ctx context.Context, language, apiRoot, apiPath, generatorInput string) error {
@@ -92,18 +92,21 @@ func runClean(image, repoRoot, apiPath string) error {
 	return runDocker(image, mounts, containerArgs)
 }
 
-func runBuild(image, repoRoot, apiPath string) error {
+func runBuild(image, rootName, root, apiPath string) error {
 	if image == "" {
 		return fmt.Errorf("image cannot be empty")
 	}
-	if repoRoot == "" {
-		return fmt.Errorf("repoRoot cannot be empty")
+	if rootName == "" {
+		return fmt.Errorf("rootName cannot be empty")
 	}
-	mounts := []string{fmt.Sprintf("%s:/repo", repoRoot)}
+	if root == "" {
+		return fmt.Errorf("root cannot be empty")
+	}
+	mounts := []string{fmt.Sprintf("%s:/%s", root, rootName)}
 	var containerArgs []string
 	containerArgs = append(containerArgs,
 		"build",
-		"--repo-root=/repo",
+		fmt.Sprintf("--%s=/%s", rootName, rootName),
 	)
 	if apiPath != "" {
 		containerArgs = append(containerArgs, fmt.Sprintf("--api-path=%s", apiPath))
