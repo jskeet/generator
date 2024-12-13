@@ -67,7 +67,64 @@ var CmdConfigure = &Command{
 		if flagPush && flagGitHubToken == "" {
 			return fmt.Errorf("-github-token must be provided if -push is set to true")
 		}
-		return container.Configure(ctx, flagLanguage, flagAPIRoot, flagAPIPath, flagGeneratorInput)
+
+		// We assume it's okay not to take a defensive copy of apiRoot in the configure command,
+		// as "vanilla" generation shouldn't need to edit any protos. (That's just an escape hatch.)
+		apiRoot, err := filepath.Abs(flagAPIRoot)
+		if err != nil {
+			return err
+		}
+
+		// tmpRoot is a newly-created working directory under /tmp
+		// We do any cloning or copying under there. Currently this is only
+		// actually needed in generate if the user hasn't specified an output directory
+		// - we could potentially only create it in that case, but always creating it
+		// is a more general case.
+		tmpRoot, err := createTmpWorkingRoot(time.Now())
+		if err != nil {
+			return err
+		}
+
+		image := defaultImage(flagLanguage)
+		languageRepo, err := cloneLanguageRepo(ctx, flagLanguage, tmpRoot)
+		if err != nil {
+			return err
+		}
+
+		generatorInput := filepath.Join(languageRepo.Dir, "generator-input")
+		if err := container.Configure(ctx, image, apiRoot, flagAPIPath, generatorInput); err != nil {
+			return err
+		}
+
+		// After configuring, we run quite a lot of the same code as in CmdUpdateRepo.Run.
+		outputDir := filepath.Join(tmpRoot, "output")
+		if err := os.Mkdir(outputDir, 0755); err != nil {
+			return err
+		}
+
+		// Take a defensive copy of the generator input directory from the language repo.
+		// Note that we didn't do this earlier, as the container.Configure step is *intended* to modify
+		// generator input in the repo. Any changes during generation aren't intended to be persisted though.
+		generatorInput = filepath.Join(tmpRoot, "generator-input")
+		if err := os.CopyFS(generatorInput, os.DirFS(filepath.Join(languageRepo.Dir, "generator-input"))); err != nil {
+			return err
+		}
+
+		if err := container.Generate(ctx, image, apiRoot, outputDir, generatorInput, flagAPIPath); err != nil {
+			return err
+		}
+		// No need to clean here, as configure should fail for an existing API.
+		if err := os.CopyFS(languageRepo.Dir, os.DirFS(outputDir)); err != nil {
+			return err
+		}
+		if err := container.Build(ctx, image, "repo-root", languageRepo.Dir, flagAPIPath); err != nil {
+			return err
+		}
+
+		if err := commit(); err != nil {
+			return err
+		}
+		return push()
 	},
 }
 
@@ -255,9 +312,9 @@ func init() {
 	for _, fn := range []func(fs *flag.FlagSet){
 		addFlagAPIPath,
 		addFlagAPIRoot,
-		addFlagGeneratorInput,
 		addFlagLanguage,
 		addFlagPush,
+		addFlagGitHubToken,
 	} {
 		fn(fs)
 	}

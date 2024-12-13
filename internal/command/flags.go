@@ -19,15 +19,14 @@ import (
 )
 
 var (
-	flagAPIPath        string
-	flagAPIRoot        string
-	flagBranch         string
-	flagGeneratorInput string
-	flagGitHubToken    string
-	flagLanguage       string
-	flagOutput         string
-	flagPush           bool
-	flagBuild          bool
+	flagAPIPath     string
+	flagAPIRoot     string
+	flagBranch      string
+	flagGitHubToken string
+	flagLanguage    string
+	flagOutput      string
+	flagPush        bool
+	flagBuild       bool
 )
 
 func addFlagAPIRoot(fs *flag.FlagSet) {
@@ -69,10 +68,6 @@ func addFlagPush(fs *flag.FlagSet) {
 
 func addFlagGitHubToken(fs *flag.FlagSet) {
 	fs.StringVar(&flagGitHubToken, "github-token", "", "GitHub access token")
-}
-
-func addFlagGeneratorInput(fs *flag.FlagSet) {
-	fs.StringVar(&flagGeneratorInput, "generator-input", "", "generator-input within the clone we've just created")
 }
 
 func addFlagBuild(fs *flag.FlagSet) {

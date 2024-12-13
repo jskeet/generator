@@ -35,8 +35,32 @@ func Build(ctx context.Context, image, rootOptionName, root, apiPath string) err
 	return runBuild(image, rootOptionName, root, apiPath)
 }
 
-func Configure(ctx context.Context, language, apiRoot, apiPath, generatorInput string) error {
-	return runCommand("echo", "configure not implemented")
+func Configure(ctx context.Context, image, apiRoot, apiPath, generatorInput string) error {
+	if image == "" {
+		return fmt.Errorf("image cannot be empty")
+	}
+	if apiRoot == "" {
+		return fmt.Errorf("apiRoot cannot be empty")
+	}
+	if apiPath == "" {
+		return fmt.Errorf("apiPath cannot be empty")
+	}
+	if generatorInput == "" {
+		return fmt.Errorf("generatorInput cannot be empty")
+	}
+	var containerArgs []string
+	containerArgs = append(containerArgs,
+		"configure",
+		"--api-root=/apis",
+		"--generator-input=/generator-input",
+		fmt.Sprintf("--api-path=%s", apiPath),
+	)
+	var mounts []string
+	mounts = append(mounts,
+		fmt.Sprintf("%s:/apis", apiRoot),
+		fmt.Sprintf("%s:/generator-input", generatorInput),
+	)
+	return runDocker(image, mounts, containerArgs)
 }
 
 func runGenerate(image, apiRoot, output, generatorInput, apiPath string) error {
