@@ -144,6 +144,7 @@ func runDocker(image string, mounts []string, containerArgs []string) error {
 	for _, mount := range mounts {
 		args = append(args, "-v", mount)
 	}
+	args = append(args, "-v", "/var/run/docker.sock:/var/run/docker.sock")
 	args = append(args, image)
 	args = append(args, containerArgs...)
 	return runCommand("docker", args...)
