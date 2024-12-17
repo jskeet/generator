@@ -29,6 +29,7 @@ var (
 	flagOutput      string
 	flagPush        bool
 	flagRepoRoot    string
+	flagWorkRoot    string
 )
 
 func addFlagAPIPath(fs *flag.FlagSet) {
@@ -69,6 +70,10 @@ func addFlagPush(fs *flag.FlagSet) {
 
 func addFlagRepoRoot(fs *flag.FlagSet) {
 	fs.StringVar(&flagRepoRoot, "repo-root", "", "Repository root. When this is not specified, the language repo will be cloned.")
+}
+
+func addFlagWorkRoot(fs *flag.FlagSet) {
+	fs.StringVar(&flagWorkRoot, "work-root", "", "Working directory root. When this is not specified, a working directory will be created in /tmp.")
 }
 
 var supportedLanguages = map[string]bool{

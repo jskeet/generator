@@ -301,6 +301,11 @@ func deriveImage() string {
 }
 
 func createTmpWorkingRoot(t time.Time) (string, error) {
+	if flagWorkRoot != "" {
+		slog.Info(fmt.Sprintf("Using specified working directory: %s", flagWorkRoot))
+		return flagWorkRoot, nil
+	}
+
 	const yyyyMMddHHmmss = "20060102T150405" // Expected format by time library
 
 	path := filepath.Join(os.TempDir(), fmt.Sprintf("generator-%s", t.Format(yyyyMMddHHmmss)))
@@ -344,6 +349,7 @@ func init() {
 	fs := CmdConfigure.flags
 	for _, fn := range []func(fs *flag.FlagSet){
 		addFlagImage,
+		addFlagWorkRoot,
 		addFlagAPIPath,
 		addFlagAPIRoot,
 		addFlagLanguage,
@@ -357,6 +363,7 @@ func init() {
 	fs = CmdGenerate.flags
 	for _, fn := range []func(fs *flag.FlagSet){
 		addFlagImage,
+		addFlagWorkRoot,
 		addFlagAPIPath,
 		addFlagAPIRoot,
 		addFlagLanguage,
@@ -369,6 +376,7 @@ func init() {
 	fs = CmdUpdateRepo.flags
 	for _, fn := range []func(fs *flag.FlagSet){
 		addFlagImage,
+		addFlagWorkRoot,
 		addFlagAPIPath,
 		addFlagAPIRoot,
 		addFlagBranch,
