@@ -289,14 +289,14 @@ var CmdUpdateRepo = &Command{
 func deriveImage() string {
 	if flagImage != "" {
 		return flagImage
+	}
+
+	defaultRepository := os.Getenv("GENERATOR_CLI_REPOSITORY")
+	relativeImage := fmt.Sprintf("google-cloud-%s-generator", flagLanguage)
+	if defaultRepository == "" {
+		return relativeImage
 	} else {
-		defaultRepository := os.Getenv("GENERATOR_CLI_REPOSITORY")
-		relativeImage := fmt.Sprintf("google-cloud-%s-generator", flagLanguage)
-		if defaultRepository == "" {
-			return relativeImage
-		} else {
-			return fmt.Sprintf("%s/%s", defaultRepository, relativeImage)
-		}
+		return fmt.Sprintf("%s/%s", defaultRepository, relativeImage)
 	}
 }
 
