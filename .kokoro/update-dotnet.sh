@@ -37,6 +37,7 @@ override_repository() {
 }
 
 install_go
+override_repository
 gcloud auth configure-docker us-central1-docker.pkg.dev
 cd github/generator
 go run ./cmd/generator update-repo -language=dotnet
