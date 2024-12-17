@@ -92,6 +92,7 @@ func runGenerate(image, apiRoot, output, generatorInput, apiPath string) error {
 		containerArgs = append(containerArgs, fmt.Sprintf("--api-path=%s", apiPath))
 	}
 
+	runDockerWithEntrypointOverride(image, mounts, "id", []string{})
 	runDockerWithEntrypointOverride(image, mounts, "ls", []string{"-la"})
 	runDockerWithEntrypointOverride(image, mounts, "ls", []string{"-la", "/generator-input"})
 	return runDocker(image, mounts, containerArgs)
@@ -147,6 +148,17 @@ func runDockerWithEntrypointOverride(image string, mounts []string, entrypoint s
 	for _, mount := range mounts {
 		args = append(args, "-v", mount)
 	}
+
+	uid, err := uid()
+	if err != nil {
+		return err
+	}
+	gid, err := gid()
+	if err != nil {
+		return err
+	}
+
+	args = append(args, "--user", fmt.Sprintf("%s:%s", uid, gid))
 	args = append(args, "--entrypoint", entrypoint)
 	args = append(args, image)
 	args = append(args, entrypointArgs...)
@@ -173,4 +185,18 @@ func runCommand(c string, args ...string) error {
 	slog.Info(cmd.String())
 	slog.Info(strings.Repeat("-", 80))
 	return cmd.Run()
+}
+
+func uid() (string, error) {
+	return getCommand("id", "-u")
+}
+func gid() (string, error) {
+	return getCommand("id", "-g")
+}
+func getCommand(c string, args ...string) (string, error) {
+	out, err := exec.Command(c, args...).Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out[:len(out)-1]), nil
 }
