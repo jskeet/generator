@@ -36,8 +36,15 @@ override_repository() {
     export GENERATOR_CLI_REPOSITORY
 }
 
+reduce_noise() {
+    CI=true
+    export CI
+}
+
 install_go
 override_repository
+reduce_noise
+
 gcloud auth configure-docker us-central1-docker.pkg.dev
 cd github/generator
 go run ./cmd/generator update-repo -language=dotnet

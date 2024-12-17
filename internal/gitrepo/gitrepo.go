@@ -54,9 +54,8 @@ func CloneOrOpen(ctx context.Context, dirpath, repoURL string) (*Repo, error) {
 // Clone downloads a copy of a Git repository from repoURL and saves it to the
 // specified directory at dirpath.
 func Clone(ctx context.Context, dirpath, repoURL string) (*Repo, error) {
-	repo, err := git.PlainClone(dirpath, false, &git.CloneOptions{
+	options := &git.CloneOptions{
 		URL:           repoURL,
-		Progress:      os.Stdout,
 		ReferenceName: plumbing.HEAD,
 		SingleBranch:  true,
 		Depth:         1,
@@ -64,7 +63,12 @@ func Clone(ctx context.Context, dirpath, repoURL string) (*Repo, error) {
 		// .NET uses submodules for conformance tests.
 		// (There may be other examples too.)
 		RecurseSubmodules: git.DefaultSubmoduleRecursionDepth,
-	})
+	}
+	if ci := os.Getenv("CI"); ci == "" {
+		options.Progress = os.Stdout // When not a CI build, output progress.
+	}
+
+	repo, err := git.PlainClone(dirpath, false, options)
 	if err != nil {
 		return nil, err
 	}
