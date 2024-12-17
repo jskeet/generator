@@ -30,6 +30,12 @@ install_go() {
     source ~/.bashrc
 }
 
+# TODO: Remove after modifying job config to allow non-slash endings
+override_repository() {
+    GENERATOR_CLI_REPOSITORY=us-central1-docker.pkg.dev/cloud-sdk-production-pipeline/pipeline-images
+    export GENERATOR_CLI_REPOSITORY
+}
+
 install_go
 gcloud auth configure-docker us-central1-docker.pkg.dev
 cd github/generator
