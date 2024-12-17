@@ -92,6 +92,11 @@ func runGenerate(image, apiRoot, output, generatorInput, apiPath string) error {
 		containerArgs = append(containerArgs, fmt.Sprintf("--api-path=%s", apiPath))
 	}
 
+	ls, err := getCommand("ls", "-la", generatorInput)
+	if err != nil {
+		return err
+	}
+	slog.Info(ls)
 	runDockerWithEntrypointOverride(image, mounts, "id", []string{})
 	runDockerWithEntrypointOverride(image, mounts, "ls", []string{"-la"})
 	runDockerWithEntrypointOverride(image, mounts, "ls", []string{"-la", "/generator-input"})

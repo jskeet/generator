@@ -263,9 +263,6 @@ var CmdUpdateRepo = &Command{
 		if err := os.CopyFS(generatorInput, os.DirFS(filepath.Join(languageRepo.Dir, "generator-input"))); err != nil {
 			return err
 		}
-		if err := debugListFiles(generatorInput); err != nil {
-			return err
-		}
 
 		if err := container.Generate(ctx, image, apiRoot, outputDir, generatorInput, flagAPIPath); err != nil {
 			return err
@@ -284,19 +281,6 @@ var CmdUpdateRepo = &Command{
 		}
 		return push()
 	},
-}
-
-func debugListFiles(dir string) error {
-	files, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-
-	slog.Info(fmt.Sprintf("Files in %s:", dir))
-	for _, file := range files {
-		slog.Info(fmt.Sprintf("  %s", file.Name()))
-	}
-	return nil
 }
 
 func deriveImage() string {
