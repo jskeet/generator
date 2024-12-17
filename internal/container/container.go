@@ -91,6 +91,9 @@ func runGenerate(image, apiRoot, output, generatorInput, apiPath string) error {
 	if apiPath != "" {
 		containerArgs = append(containerArgs, fmt.Sprintf("--api-path=%s", apiPath))
 	}
+
+	runDockerWithEntrypointOverride(image, mounts, "ls", []string{"-la"})
+	runDockerWithEntrypointOverride(image, mounts, "ls", []string{"-la", "/generator-input"})
 	return runDocker(image, mounts, containerArgs)
 }
 
@@ -135,6 +138,19 @@ func runBuild(image, rootName, root, apiPath string) error {
 		containerArgs = append(containerArgs, fmt.Sprintf("--api-path=%s", apiPath))
 	}
 	return runDocker(image, mounts, containerArgs)
+}
+
+func runDockerWithEntrypointOverride(image string, mounts []string, entrypoint string, entrypointArgs []string) error {
+	args := []string{
+		"run",
+	}
+	for _, mount := range mounts {
+		args = append(args, "-v", mount)
+	}
+	args = append(args, "--entrypoint", entrypoint)
+	args = append(args, image)
+	args = append(args, entrypointArgs...)
+	return runCommand("docker", args...)
 }
 
 func runDocker(image string, mounts []string, containerArgs []string) error {
