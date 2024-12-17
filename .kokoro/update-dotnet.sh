@@ -45,6 +45,9 @@ install_go
 override_repository
 reduce_noise
 
+docker ps
+for id in $(docker ps | tail -n +2 | cut '-d ' -f1); do echo $id; docker inspect -f '{{ .Mounts }}' $id; done
+
 gcloud auth configure-docker us-central1-docker.pkg.dev
 cd github/generator
 go run ./cmd/generator update-repo -language=dotnet
