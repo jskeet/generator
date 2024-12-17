@@ -31,5 +31,6 @@ install_go() {
 }
 
 install_go
+gcloud auth configure-docker us-central1-docker.pkg.dev
 cd github/generator
 go run ./cmd/generator update-repo -language=dotnet
