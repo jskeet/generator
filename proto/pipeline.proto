@@ -1,0 +1,67 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+package google.cloud.sdk.pipeline;
+
+option go_package = "github.com/googleapis/generator/internal/statepb;statepb";
+
+// Overall state of the generation and release pipeline. This is expected
+// to be stored in each language repo as generator-input/pipeline-state.json.
+message PipelineState {
+  // The image tag that the CLI should use when invoking the
+  // language-specific tooling. The image name is assumed by convention.
+  string image_tag = 1;
+
+  repeated ApiGenerationState api_generation_states = 2;
+  repeated LibraryReleaseState library_release_states = 3;
+}
+
+// Generation state of a single API.
+message ApiGenerationState {
+  // The API identifier (currently expected to be a path)
+  string id = 1;
+  // The commit hash (in googleapis) from which the API was
+  // last generated.
+  string last_generated_commit = 2;
+  // The automation level for regeneration of this API.
+  AutomationLevel automation_level = 3;
+}
+
+// Generation state of a single library.
+message LibraryReleaseState {
+  // The library identifier (language-specific format)
+  string id = 1;
+  // The last version that was released, if any.
+  string current_version = 2;
+  // The next version to release (to force a specific version number).
+  // This should usually be unset.
+  string next_version = 3;
+  // The automation level for releases for this library.
+  AutomationLevel automation_level = 4;
+}
+
+// The degree of automation to use when generating/releasing.
+enum AutomationLevel {
+  // Not used.
+  AUTOMATION_LEVEL_NONE = 0;
+  // Automation is blocked: this API/library should be skipped
+  AUTOMATION_LEVEL_BLOCKED = 1;
+  // Automation can generate changes/releases,
+  // but they need to be reviewed.
+  AUTOMATION_LEVEL_MANUAL_REVIEW = 2;
+  // Automation can generated changes/releases which can
+  // proceed without further review if all tests pass.
+  AUTOMATION_LEVEL_AUTOMATIC = 3;
+}

@@ -141,6 +141,35 @@ func Commit(ctx context.Context, repo *Repo, msg string) error {
 	return nil
 }
 
+func HeadHash(ctx context.Context, repo *Repo) (string, error) {
+	headRef, err := repo.repo.Head()
+	if err != nil {
+		return "", err
+	}
+	return headRef.String(), nil
+}
+
+func IsClean(ctx context.Context, repo *Repo) (bool, error) {
+	worktree, err := repo.repo.Worktree()
+	if err != nil {
+		return false, err
+	}
+	status, err := worktree.Status()
+	if err != nil {
+		return false, err
+	}
+
+	return status.IsClean(), nil
+}
+
+func ResetHard(ctx context.Context, repo *Repo) error {
+	worktree, err := repo.repo.Worktree()
+	if err != nil {
+		return err
+	}
+	return worktree.Reset(&git.ResetOptions{Mode: git.HardReset})
+}
+
 func PrintStatus(ctx context.Context, repo *Repo) error {
 	worktree, err := repo.repo.Worktree()
 	if err != nil {
@@ -188,4 +217,38 @@ func PrintStatus(ctx context.Context, repo *Repo) error {
 	}
 
 	return nil
+}
+
+// Returns the commits in an API rooted at the given path,
+// stopping looking at the given commit (which is not included in the results).
+// The returned commits are ordered such that the most recent commit is first.
+func GetApiCommits(ctx context.Context, repo *Repo, path string, commit string) ([]object.Commit, error) {
+	commits := []object.Commit{}
+	// Our paths are directories, and should be treated as such. (If we pass in x/v1, we don't want x/v1beta changes.)
+	path = path + "/"
+	finalHash := plumbing.NewHash(commit)
+	pathFilter := func(changePath string) bool {
+		return strings.HasPrefix(changePath, path)
+	}
+
+	logOptions := git.LogOptions{PathFilter: pathFilter}
+	logIterator, err := repo.repo.Log(&logOptions)
+	if err != nil {
+		return nil, err
+	}
+
+	// Sentinel "error" - this can be replaced using LogOptions.To when that's available.
+	var ErrStopIterating = fmt.Errorf("fake error to stop iterating")
+	err = logIterator.ForEach(func(commit *object.Commit) error {
+		if commit.Hash == finalHash {
+			return ErrStopIterating
+		}
+
+		commits = append(commits, *commit)
+		return nil
+	})
+	if err != nil && err != ErrStopIterating {
+		return nil, err
+	}
+	return commits, nil
 }

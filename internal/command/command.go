@@ -15,16 +15,23 @@
 package command
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/googleapis/generator/internal/container"
 	"github.com/googleapis/generator/internal/gitrepo"
+	"github.com/googleapis/generator/internal/statepb"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type Command struct {
@@ -76,8 +83,6 @@ var CmdConfigure = &Command{
 			return err
 		}
 
-		image := deriveImage()
-
 		var apiRoot string
 		if flagAPIRoot == "" {
 			repo, err := cloneGoogleapis(ctx, tmpRoot)
@@ -110,6 +115,13 @@ var CmdConfigure = &Command{
 				return err
 			}
 		}
+
+		state, err := loadState(languageRepo)
+		if err != nil {
+			return err
+		}
+
+		image := deriveImage(state)
 
 		generatorInput := filepath.Join(languageRepo.Dir, "generator-input")
 		if err := container.Configure(ctx, image, apiRoot, flagAPIPath, generatorInput); err != nil {
@@ -195,7 +207,7 @@ var CmdGenerate = &Command{
 			}
 		}
 
-		image := deriveImage()
+		image := deriveImage(nil)
 		// The final empty string argument is for generator input - we don't have any
 		if err := container.Generate(ctx, image, apiRoot, outputDir, "", flagAPIPath); err != nil {
 			return err
@@ -226,19 +238,30 @@ var CmdUpdateRepo = &Command{
 			return err
 		}
 
-		var apiRoot string
+		var apiRepo *gitrepo.Repo
+		hardResetApiRepo := true
 		if flagAPIRoot == "" {
-			repo, err := cloneGoogleapis(ctx, tmpRoot)
+			apiRepo, err = cloneGoogleapis(ctx, tmpRoot)
 			if err != nil {
 				return err
 			}
-			apiRoot = repo.Dir
 		} else {
-			// Take a defensive copy of googleapis; ideally we'd omit
-			// the .git directory here, but this is at least simple.
-			apiRoot = filepath.Join(tmpRoot, "googleapis")
-			slog.Info(fmt.Sprintf("Copying %s to %s", flagAPIRoot, apiRoot))
-			os.CopyFS(apiRoot, os.DirFS(flagAPIRoot))
+			apiRoot, err := filepath.Abs(flagAPIRoot)
+			if err != nil {
+				return err
+			}
+			apiRepo, err = gitrepo.Open(ctx, apiRoot)
+			if err != nil {
+				return err
+			}
+			clean, err := gitrepo.IsClean(ctx, apiRepo)
+			if err != nil {
+				return err
+			}
+			if !clean {
+				hardResetApiRepo = false
+				slog.Warn("API repo has modifications, so will not be reset after generation")
+			}
 		}
 
 		var outputDir string
@@ -255,12 +278,36 @@ var CmdUpdateRepo = &Command{
 			}
 		}
 
-		languageRepo, err := cloneLanguageRepo(ctx, flagLanguage, tmpRoot)
+		var languageRepo *gitrepo.Repo
+		if flagRepoRoot == "" {
+			languageRepo, err = cloneLanguageRepo(ctx, flagLanguage, tmpRoot)
+			if err != nil {
+				return err
+			}
+		} else {
+			repoRoot, err := filepath.Abs(flagRepoRoot)
+			if err != nil {
+				return err
+			}
+			languageRepo, err = gitrepo.Open(ctx, repoRoot)
+			if err != nil {
+				return err
+			}
+			clean, err := gitrepo.IsClean(ctx, apiRepo)
+			if err != nil {
+				return err
+			}
+			if !clean {
+				return errors.New("language repo must be clean before update")
+			}
+		}
+
+		state, err := loadState(languageRepo)
 		if err != nil {
 			return err
 		}
 
-		image := deriveImage()
+		image := deriveImage(state)
 
 		// Take a defensive copy of the generator input directory from the language repo.
 		generatorInput := filepath.Join(tmpRoot, "generator-input")
@@ -268,45 +315,187 @@ var CmdUpdateRepo = &Command{
 			return err
 		}
 
-		if err := container.Generate(ctx, image, apiRoot, outputDir, generatorInput, flagAPIPath); err != nil {
-			return err
-		}
-		if err := container.Clean(ctx, image, languageRepo.Dir, flagAPIPath); err != nil {
-			return err
-		}
-		if err := os.CopyFS(languageRepo.Dir, os.DirFS(outputDir)); err != nil {
+		hashBefore, err := gitrepo.HeadHash(ctx, languageRepo)
+		if err != nil {
 			return err
 		}
 
-		var msg string // TODO: Improve info using googleapis commits and version info
-		if flagAPIPath == "" {
-			msg = "Regenerated all APIs"
+		// Perform "generate, clean, commit, build" on each element in ApiGenerationStates.
+		for _, apiState := range state.ApiGenerationStates {
+			err = updateApi(ctx, apiRepo, languageRepo, generatorInput, image, outputDir, state, apiState)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Reset the API repo in case it was changed, but not if it was already dirty before the command.
+		if hardResetApiRepo {
+			gitrepo.ResetHard(ctx, apiRepo)
+		}
+
+		hashAfter, err := gitrepo.HeadHash(ctx, languageRepo)
+		if err != nil {
+			return err
+		}
+		if hashBefore == hashAfter {
+			slog.Info("No changes generated; nothing to push.")
+			return nil
 		} else {
-			msg = fmt.Sprintf("Regenerated API %s", flagAPIPath)
+			return push()
 		}
-		if err := commitAll(ctx, languageRepo, msg); err != nil {
-			return err
-		}
-
-		if err := container.Build(ctx, image, "repo-root", languageRepo.Dir, flagAPIPath); err != nil {
-			return err
-		}
-		return push()
 	},
 }
 
-func deriveImage() string {
+func updateApi(ctx context.Context, apiRepo *gitrepo.Repo, languageRepo *gitrepo.Repo, generatorInput string, image string, outputRoot string, repoState *statepb.PipelineState, apiState *statepb.ApiGenerationState) error {
+	if flagAPIPath != "" && flagAPIPath != apiState.Id {
+		// If flagAPIPath has been passed in, we only act on that API.
+		return nil
+	}
+
+	if apiState.AutomationLevel == statepb.AutomationLevel_AUTOMATION_LEVEL_BLOCKED {
+		slog.Info(fmt.Sprintf("Ignoring blocked API: '%s'", apiState.Id))
+		return nil
+	}
+	commits, err := gitrepo.GetApiCommits(ctx, apiRepo, apiState.Id, apiState.LastGeneratedCommit)
+	if err != nil {
+		return err
+	}
+	if len(commits) == 0 {
+		slog.Info(fmt.Sprintf("API '%s' has no changes.", apiState.Id))
+		return nil
+	}
+	slog.Info(fmt.Sprintf("Generating '%s' with %d new commit(s)", apiState.Id, len(commits)))
+
+	// Now that we know the API has at least one new API commit, regenerate it, update the state, commit the change and build the output.
+
+	// We create an output directory separately for each API.
+	outputDir := filepath.Join(outputRoot, apiState.Id)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return err
+	}
+
+	if err := container.Generate(ctx, image, apiRepo.Dir, outputDir, generatorInput, apiState.Id); err != nil {
+		return err
+	}
+	if err := container.Clean(ctx, image, languageRepo.Dir, apiState.Id); err != nil {
+		return err
+	}
+	if err := os.CopyFS(languageRepo.Dir, os.DirFS(outputDir)); err != nil {
+		return err
+	}
+
+	apiState.LastGeneratedCommit = commits[0].Hash.String()
+	if err := saveState(languageRepo, repoState); err != nil {
+		return err
+	}
+
+	// Note that as we've updated the state, we'll definitely have something to commit, even if no
+	// generated code changed. This avoids us regenerating no-op changes again and again, and reflects
+	// that we really are at the latest state.
+	var msg = createCommitMessage(commits)
+	if err := commitAll(ctx, languageRepo, msg); err != nil {
+		return err
+	}
+
+	// Once we've committed, we can build - but then check that nothing has changed afterwards.
+	if err := container.Build(ctx, image, "repo-root", languageRepo.Dir, apiState.Id); err != nil {
+		return err
+	}
+	clean, err := gitrepo.IsClean(ctx, languageRepo)
+	if err != nil {
+		return err
+	}
+	if !clean {
+		return fmt.Errorf("building '%s' created changes in the repo", apiState.Id)
+	}
+	return nil
+}
+
+func createCommitMessage(commits []object.Commit) string {
+	const PiperPrefix = "PiperOrigin-RevId: "
+	var builder strings.Builder
+	piperRevIdLines := []string{}
+	sourceLinkLines := []string{}
+	// Consume the commits in reverse order, so that they're in normal chronological order,
+	// accumulating PiperOrigin-RevId and Source-Link lines.
+	for i := len(commits) - 1; i >= 0; i-- {
+		commit := commits[i]
+		messageLines := strings.Split(commit.Message, "\n")
+		sourceLinkLines = append(sourceLinkLines, fmt.Sprintf("Source-Link: https://github.com/googleapis/googleapis/%s", commit.Hash.String()))
+		for _, line := range messageLines {
+			if strings.HasPrefix(line, PiperPrefix) {
+				piperRevIdLines = append(piperRevIdLines, line)
+			} else {
+				builder.WriteString(line)
+				builder.WriteString("\n")
+			}
+
+		}
+	}
+	for _, revIdLine := range piperRevIdLines {
+		builder.WriteString(revIdLine)
+		builder.WriteString("\n")
+	}
+	for _, sourceLinkLine := range sourceLinkLines {
+		builder.WriteString(sourceLinkLine)
+		builder.WriteString("\n")
+	}
+	return builder.String()
+}
+
+func deriveImage(state *statepb.PipelineState) string {
 	if flagImage != "" {
 		return flagImage
 	}
 
 	defaultRepository := os.Getenv("GENERATOR_CLI_REPOSITORY")
 	relativeImage := fmt.Sprintf("google-cloud-%s-generator", flagLanguage)
-	if defaultRepository == "" {
-		return relativeImage
+
+	var tag string
+	if state == nil {
+		tag = "latest"
 	} else {
-		return fmt.Sprintf("%s/%s", defaultRepository, relativeImage)
+		tag = state.ImageTag
 	}
+	if defaultRepository == "" {
+		return fmt.Sprintf("%s:%s", relativeImage, tag)
+	} else {
+		return fmt.Sprintf("%s/%s:%s", defaultRepository, relativeImage, tag)
+	}
+}
+
+func loadState(languageRepo *gitrepo.Repo) (*statepb.PipelineState, error) {
+	path := filepath.Join(languageRepo.Dir, "generator-input", "pipeline-state.json")
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	state := &statepb.PipelineState{}
+	err = protojson.Unmarshal(bytes, state)
+	if err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
+func saveState(languageRepo *gitrepo.Repo, state *statepb.PipelineState) error {
+	path := filepath.Join(languageRepo.Dir, "generator-input", "pipeline-state.json")
+	// Marshal the protobuf message as JSON...
+	unformatted, err := protojson.Marshal(state)
+	if err != nil {
+		return err
+	}
+	// ... then reformat it
+	var formatted bytes.Buffer
+	err = json.Indent(&formatted, unformatted, "", "  ")
+	if err != nil {
+		return err
+	}
+	// The file mode is likely to be irrelevant, given that the permissions aren't changed
+	// if the file exists, which we expect it to anyway.
+	err = os.WriteFile(path, formatted.Bytes(), os.FileMode(0644))
+	return err
 }
 
 func createTmpWorkingRoot(t time.Time) (string, error) {
@@ -407,6 +596,7 @@ func init() {
 		addFlagLanguage,
 		addFlagOutput,
 		addFlagPush,
+		addFlagRepoRoot,
 	} {
 		fn(fs)
 	}

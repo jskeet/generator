@@ -4,6 +4,8 @@ go 1.23
 
 require github.com/go-git/go-git/v5 v5.13.2
 
+require google.golang.org/protobuf v1.36.4
+
 require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/Microsoft/go-winio v0.6.1 // indirect
