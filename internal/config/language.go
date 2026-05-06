@@ -360,14 +360,13 @@ type PythonPackage struct {
 
 	// ClientDocumentationOverride allows the client_documentation field in
 	// .repo-metadata.json to be overridden from the default that's inferred.
-	// TODO(https://github.com/googleapis/librarian/issues/4175): reduce uses
-	// of this field to only cases where it's really needed.
 	ClientDocumentationOverride string `yaml:"client_documentation_override,omitempty"`
 
 	// IssueTrackerOverride allows the issue_tracker field in
-	// .repo-metadata.json to be overridden, to reduce diffs while migrating.
-	// TODO(https://github.com/googleapis/librarian/issues/4175): remove this
-	// field.
+	// .repo-metadata.json to be overridden. This should only be used for
+	// packages which don't include generated code. Anything generated from an
+	// API should use the issue tracker from the service config or the librarian
+	// sdk.yaml file.
 	IssueTrackerOverride string `yaml:"issue_tracker_override,omitempty"`
 
 	// MetadataNameOverride allows the name in .repo-metadata.json (which is

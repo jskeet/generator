@@ -361,8 +361,8 @@ This document describes the schema for the librarian.yaml.
 | (embedded) | [PythonDefault](#pythondefault-configuration) |  |
 | `opt_args_by_api` | map[string][]string | Contains additional options passed to the generator. In each entry, the key is the API path and the value is the list of options to pass when generating that API. Example: {"google/cloud/secrets/v1beta": ["python-gapic-name=secretmanager"]} |
 | `proto_only_apis` | list of string | Contains the list of API paths which are proto-only, so should use regular protoc Python generation instead of GAPIC. |
-| `client_documentation_override` | string | Allows the client_documentation field in .repo-metadata.json to be overridden from the default that's inferred. TODO(https://github.com/googleapis/librarian/issues/4175): reduce uses of this field to only cases where it's really needed. |
-| `issue_tracker_override` | string | Allows the issue_tracker field in .repo-metadata.json to be overridden, to reduce diffs while migrating. TODO(https://github.com/googleapis/librarian/issues/4175): remove this field. |
+| `client_documentation_override` | string | Allows the client_documentation field in .repo-metadata.json to be overridden from the default that's inferred. |
+| `issue_tracker_override` | string | Allows the issue_tracker field in .repo-metadata.json to be overridden. This should only be used for packages which don't include generated code. Anything generated from an API should use the issue tracker from the service config or the librarian sdk.yaml file. |
 | `metadata_name_override` | string | Allows the name in .repo-metadata.json (which is also used as part of the client documentation URI) to be overridden. By default, it's the package name, but older packages use the API short name instead. |
 | `default_version` | string | Is the default version of the API to use. When omitted, the version in the first API path is used. |
 
