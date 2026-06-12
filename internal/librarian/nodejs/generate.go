@@ -248,7 +248,7 @@ func buildGeneratorArgs(api *config.API, library *config.Library, googleapisDir,
 		if library.Nodejs.MainService != "" {
 			args = append(args, "--main-service", library.Nodejs.MainService)
 		}
-		if library.Nodejs.Mixins != "" {
+		if library.Nodejs.Mixins != "" && api.Path != "google/cloud/dialogflow/cx/v3beta1" {
 			args = append(args, "--mixins", library.Nodejs.Mixins)
 		}
 	}
